@@ -132,6 +132,7 @@
     <div>
       <div class="sub" id="board-subtitle">Field progress log — shared board</div>
       <h1 id="board-title">Survey sites</h1>
+      <select id="project-switcher" style="margin-top:8px;background:var(--ink-2);color:var(--parchment);border:1px solid var(--fog);border-radius:4px;padding:4px 8px;font-size:12px;"></select>
     </div>
     <div class="meta">
       <div>Today · <b id="today-display"></b></div>
@@ -147,6 +148,7 @@
     <button class="ghost" id="btn-theme" style="display:none;">Theme</button>
     <button class="ghost" id="btn-manage-users" style="display:none;">Manage users</button>
     <button class="ghost" id="btn-manage-docs" style="display:none;">Manage documents</button>
+    <button class="ghost" id="btn-manage-projects" style="display:none;">Manage projects</button>
     <button class="ghost" id="btn-signin">Sign in</button>
     <button class="ghost" id="btn-signout" style="display:none;">Sign out</button>
   </div>
@@ -360,7 +362,30 @@
   </div>
 </div>
 
+<div class="panel-overlay" id="projects-overlay">
+  <div class="panel" style="max-width:520px;">
+    <h3>Manage projects</h3>
+    <div id="projects-manage-list" style="margin-bottom:16px;display:flex;flex-direction:column;gap:10px;"></div>
+
+    <div style="border-top:1px solid var(--fog);padding-top:12px;">
+      <div class="field">
+        <label>New project name</label>
+        <input type="text" id="new-project-name" placeholder="e.g. Zone 4 survey">
+      </div>
+      <div id="project-error" class="status-note" style="color:var(--rust);"></div>
+      <div class="panel-actions">
+        <button id="btn-add-project">Add project</button>
+        <div class="right">
+          <button class="ghost" id="btn-close-projects">Close</button>
+        </div>
+      </div>
+    </div>
+    <div class="status-note">Each project has its own site list and its own progress documents. Viewers switch between projects using the dropdown under the board title.</div>
+  </div>
+</div>
+
 <script>
+
 (function(){
   var STORAGE_KEY = 'gantt-tasks';
   var TITLE_KEY = 'gantt-title';
@@ -368,9 +393,29 @@
   var LABELS_KEY = 'gantt-labels-v1';
   var THEME_KEY = 'gantt-theme-v1';
   var DOCS_KEY = 'gantt-docs-v1';
+  var PROJECTS_KEY = 'gantt-projects-v1';
   var docs = []; // { id, title, url, visibleToAll, allowedUsers: [usernames] }
   var tasks = [];
   var boardTitle = 'Survey sites';
+  var projects = []; // { id, name, visibility:'public'|'restricted', allowedViewers:[], allowedEditors:[] }
+  var activeProjectId = 'default';
+
+  function taskKeyFor(pid){ return pid === 'default' ? STORAGE_KEY : (STORAGE_KEY + ':' + pid); }
+  function docsKeyFor(pid){ return pid === 'default' ? DOCS_KEY : (DOCS_KEY + ':' + pid); }
+  function getActiveProject(){
+    var found = projects.find(function(p){ return p.id === activeProjectId; });
+    return found || projects[0] || { id:'default', name:'Main project', visibility:'public', allowedViewers:[], allowedEditors:[] };
+  }
+  function canViewProject(p){
+    if(isAdmin()) return true;
+    if(p.visibility !== 'restricted') return true;
+    return !!(currentUser && p.allowedViewers && p.allowedViewers.indexOf(currentUser.user) !== -1);
+  }
+  function canEditProject(p){
+    if(isAdmin()) return true;
+    return !!(currentUser && p.allowedEditors && p.allowedEditors.indexOf(currentUser.user) !== -1);
+  }
+  function visibleProjects(){ return projects.filter(canViewProject); }
   var activeId = null;
   var auth = { admin: { user:'admin', pass:'11223344' }, editors: [] };
   var currentUser = null; // { user, isAdmin } — session only, not persisted, resets on reload
@@ -433,10 +478,6 @@
 
   async function loadAll(){
     try{
-      var r = await storage.get(STORAGE_KEY);
-      tasks = r ? JSON.parse(r.value) : [];
-    }catch(e){ tasks = []; }
-    try{
       var rt = await storage.get(TITLE_KEY);
       boardTitle = rt ? rt.value : 'Survey sites';
     }catch(e){ boardTitle = 'Survey sites'; }
@@ -461,19 +502,62 @@
       if(rth && THEMES[rth.value]) currentThemeName = rth.value;
     }catch(e){ /* keep default theme */ }
     try{
-      var rd = await storage.get(DOCS_KEY);
-      docs = rd ? JSON.parse(rd.value) : [];
-    }catch(e){ docs = []; }
+      var rp = await storage.get(PROJECTS_KEY);
+      if(rp){
+        projects = JSON.parse(rp.value);
+      } else {
+        projects = [{ id:'default', name: boardTitle, visibility:'public', allowedViewers:[], allowedEditors:[] }];
+        await saveProjects();
+      }
+    }catch(e){
+      projects = [{ id:'default', name: boardTitle, visibility:'public', allowedViewers:[], allowedEditors:[] }];
+    }
     document.getElementById('board-title').textContent = boardTitle;
     applyLabels();
     applyTheme(currentThemeName);
     renderAuthUI();
+    var visible = visibleProjects();
+    activeProjectId = visible.length ? visible[0].id : (projects[0] ? projects[0].id : 'default');
+    renderProjectSwitcher();
+    await loadProjectData();
+  }
+
+  async function loadProjectData(){
+    try{
+      var r = await storage.get(taskKeyFor(activeProjectId));
+      tasks = r ? JSON.parse(r.value) : [];
+    }catch(e){ tasks = []; }
+    try{
+      var rd = await storage.get(docsKeyFor(activeProjectId));
+      docs = rd ? JSON.parse(rd.value) : [];
+    }catch(e){ docs = []; }
     renderDocsList();
     render();
   }
 
+  async function saveProjects(){
+    try{ await storage.set(PROJECTS_KEY, JSON.stringify(projects)); }
+    catch(e){ console.error('save failed', e); }
+  }
+
+  function renderProjectSwitcher(){
+    var sel = document.getElementById('project-switcher');
+    if(!sel) return;
+    var visible = visibleProjects();
+    if(visible.length === 0){
+      sel.style.display = 'none';
+      return;
+    }
+    sel.style.display = '';
+    if(!visible.some(function(p){ return p.id === activeProjectId; })){
+      activeProjectId = visible[0].id;
+    }
+    sel.innerHTML = visible.map(function(p){
+      return '<option value="'+escapeHtml(p.id)+'"'+(p.id===activeProjectId?' selected':'')+'>'+escapeHtml(p.name)+'</option>';
+    }).join('');
+  }
   async function saveTasks(){
-    try{ await storage.set(STORAGE_KEY, JSON.stringify(tasks)); }
+    try{ await storage.set(taskKeyFor(activeProjectId), JSON.stringify(tasks)); }
     catch(e){ console.error('save failed', e); }
   }
   async function saveTitle(){
@@ -493,7 +577,7 @@
     catch(e){ console.error('save failed', e); }
   }
   async function saveDocs(){
-    try{ await storage.set(DOCS_KEY, JSON.stringify(docs)); }
+    try{ await storage.set(docsKeyFor(activeProjectId), JSON.stringify(docs)); }
     catch(e){ console.error('save failed', e); }
   }
 
@@ -555,6 +639,7 @@
     var editTextBtn = document.getElementById('btn-edit-text');
     var themeBtn = document.getElementById('btn-theme');
     var docsBtn = document.getElementById('btn-manage-docs');
+    var projectsBtn = document.getElementById('btn-manage-projects');
     if(isLoggedIn()){
       statusEl.textContent = 'Signed in as ' + currentUser.user + (isAdmin() ? ' (admin)' : '');
       signIn.style.display = 'none';
@@ -563,6 +648,7 @@
       editTextBtn.style.display = isAdmin() ? '' : 'none';
       themeBtn.style.display = isAdmin() ? '' : 'none';
       docsBtn.style.display = isAdmin() ? '' : 'none';
+      projectsBtn.style.display = isAdmin() ? '' : 'none';
     } else {
       statusEl.textContent = 'Viewing only — sign in to edit';
       signIn.style.display = '';
@@ -571,8 +657,15 @@
       editTextBtn.style.display = 'none';
       themeBtn.style.display = 'none';
       docsBtn.style.display = 'none';
+      projectsBtn.style.display = 'none';
     }
-    renderDocsList();
+    var prevProjectId = activeProjectId;
+    renderProjectSwitcher();
+    if(activeProjectId !== prevProjectId){
+      loadProjectData();
+    } else {
+      renderDocsList();
+    }
   }
 
   function requireLogin(){
@@ -580,6 +673,15 @@
     document.getElementById('login-error').textContent = '';
     document.getElementById('login-overlay').classList.add('open');
     return false;
+  }
+
+  function requireProjectEdit(){
+    if(!requireLogin()) return false;
+    if(!canEditProject(getActiveProject())){
+      alert('You don\'t have edit access to this project — ask admin to grant it.');
+      return false;
+    }
+    return true;
   }
 
   function contourSVG(seed, width, height, colorClass){
@@ -703,7 +805,7 @@
   }
 
   document.getElementById('btn-toggle-add').addEventListener('click', function(){
-    if(!requireLogin()) return;
+    if(!requireProjectEdit()) return;
     var f = document.getElementById('add-form');
     f.classList.add('open');
     var today = fmtISO(new Date());
@@ -717,7 +819,7 @@
     document.getElementById('in-owner').value = '';
   });
   document.getElementById('btn-save-new').addEventListener('click', function(){
-    if(!requireLogin()) return;
+    if(!requireProjectEdit()) return;
     var name = document.getElementById('in-name').value.trim();
     var owner = document.getElementById('in-owner').value.trim();
     var start = document.getElementById('in-start').value;
@@ -763,7 +865,7 @@
     document.getElementById('panel-overlay').classList.remove('open');
   });
   document.getElementById('btn-save-edit').addEventListener('click', function(){
-    if(!requireLogin()) return;
+    if(!requireProjectEdit()) return;
     var t = tasks.find(function(x){ return x.id === activeId; });
     if(!t) return;
     t.progress = parseInt(document.getElementById('in-progress').value, 10);
@@ -777,7 +879,7 @@
     document.getElementById('panel-overlay').classList.remove('open');
   });
   document.getElementById('btn-delete').addEventListener('click', function(){
-    if(!requireLogin()) return;
+    if(!requireProjectEdit()) return;
     if(!confirm('Remove this ' + labels.itemSingular.toLowerCase() + ' from the board?')) return;
     tasks = tasks.filter(function(x){ return x.id !== activeId; });
     saveTasks();
@@ -1053,6 +1155,126 @@
     document.getElementById('doc-url').value = '';
     document.getElementById('doc-visible-all').checked = false;
     renderDocUserChecks();
+  });
+
+  document.getElementById('project-switcher').addEventListener('change', function(){
+    activeProjectId = this.value;
+    loadProjectData();
+  });
+
+  var expandedProjectId = null;
+
+  function renderProjectsManageList(){
+    var el = document.getElementById('projects-manage-list');
+    el.innerHTML = projects.map(function(p){
+      var expanded = p.id === expandedProjectId;
+      var editorOptionsView = auth.editors.map(function(ed){
+        var checked = p.allowedViewers && p.allowedViewers.indexOf(ed.user) !== -1;
+        return '<label style="text-transform:none;font-size:13px;color:var(--parchment);display:flex;gap:6px;align-items:center;">'+
+          '<input type="checkbox" class="proj-view-check" data-pid="'+p.id+'" value="'+escapeHtml(ed.user)+'"'+(checked?' checked':'')+' style="width:auto;"> '+escapeHtml(ed.user)+'</label>';
+      }).join('');
+      var editorOptionsEdit = auth.editors.map(function(ed){
+        var checked = p.allowedEditors && p.allowedEditors.indexOf(ed.user) !== -1;
+        return '<label style="text-transform:none;font-size:13px;color:var(--parchment);display:flex;gap:6px;align-items:center;">'+
+          '<input type="checkbox" class="proj-edit-check" data-pid="'+p.id+'" value="'+escapeHtml(ed.user)+'"'+(checked?' checked':'')+' style="width:auto;"> '+escapeHtml(ed.user)+'</label>';
+      }).join('');
+
+      var header = '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+        '<div><b style="color:var(--parchment);font-size:14px;">'+escapeHtml(p.name)+'</b> <span class="status-note" style="margin:0;">('+(p.visibility==='restricted'?'restricted':'public')+')</span></div>'+
+        '<div style="display:flex;gap:6px;">'+
+          '<button class="ghost" data-configure="'+p.id+'">'+(expanded?'Close':'Configure')+'</button>'+
+          (p.id==='default' ? '' : '<button class="danger" data-remove-project="'+p.id+'">Delete</button>')+
+        '</div></div>';
+
+      var body = '';
+      if(expanded){
+        body = '<div style="margin-top:8px;padding:10px;border:1px solid var(--fog);border-radius:4px;">'+
+          '<div class="field"><label>Project name</label><input type="text" class="proj-name-input" data-pid="'+p.id+'" value="'+escapeHtml(p.name)+'"></div>'+
+          '<div class="field"><label>Visibility</label>'+
+            '<label style="text-transform:none;font-size:13px;color:var(--parchment);display:flex;gap:6px;align-items:center;">'+
+              '<input type="radio" name="vis-'+p.id+'" class="proj-vis-radio" data-pid="'+p.id+'" value="public"'+(p.visibility!=='restricted'?' checked':'')+' style="width:auto;"> Public — anyone with the board link can view</label>'+
+            '<label style="text-transform:none;font-size:13px;color:var(--parchment);display:flex;gap:6px;align-items:center;">'+
+              '<input type="radio" name="vis-'+p.id+'" class="proj-vis-radio" data-pid="'+p.id+'" value="restricted"'+(p.visibility==='restricted'?' checked':'')+' style="width:auto;"> Restricted — only selected users below can view</label>'+
+          '</div>'+
+          '<div class="field"><label>Can view (if restricted)</label>'+(editorOptionsView || '<div class="status-note">No editors added yet — add some via Manage users first.</div>')+'</div>'+
+          '<div class="field"><label>Can edit this project</label>'+(editorOptionsEdit || '<div class="status-note">No editors added yet — add some via Manage users first.</div>')+'</div>'+
+          '<button data-save-project="'+p.id+'">Save changes</button>'+
+        '</div>';
+      }
+      return '<div>'+header+body+'</div>';
+    }).join('');
+
+    Array.prototype.forEach.call(el.querySelectorAll('button[data-configure]'), function(btn){
+      btn.addEventListener('click', function(){
+        var pid = this.getAttribute('data-configure');
+        expandedProjectId = (expandedProjectId === pid) ? null : pid;
+        renderProjectsManageList();
+      });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('button[data-remove-project]'), function(btn){
+      btn.addEventListener('click', function(){
+        var pid = this.getAttribute('data-remove-project');
+        if(!confirm('Delete this project? Its site list and documents will no longer be shown (existing data is not fetched again, just hidden).')) return;
+        projects = projects.filter(function(p){ return p.id !== pid; });
+        saveProjects();
+        if(activeProjectId === pid){
+          activeProjectId = projects[0] ? projects[0].id : 'default';
+          loadProjectData();
+        }
+        renderProjectSwitcher();
+        renderProjectsManageList();
+      });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('button[data-save-project]'), function(btn){
+      btn.addEventListener('click', function(){
+        var pid = this.getAttribute('data-save-project');
+        var p = projects.find(function(x){ return x.id === pid; });
+        if(!p) return;
+        var nameInput = el.querySelector('.proj-name-input[data-pid="'+pid+'"]');
+        var visRadio = el.querySelector('.proj-vis-radio[data-pid="'+pid+'"]:checked');
+        var viewChecks = Array.prototype.map.call(el.querySelectorAll('.proj-view-check[data-pid="'+pid+'"]:checked'), function(cb){ return cb.value; });
+        var editChecks = Array.prototype.map.call(el.querySelectorAll('.proj-edit-check[data-pid="'+pid+'"]:checked'), function(cb){ return cb.value; });
+        var newName = nameInput.value.trim();
+        p.name = newName || p.name;
+        p.visibility = visRadio ? visRadio.value : 'public';
+        p.allowedViewers = viewChecks;
+        p.allowedEditors = editChecks;
+        saveProjects();
+        expandedProjectId = null;
+        renderProjectsManageList();
+        renderProjectSwitcher();
+      });
+    });
+  }
+
+  document.getElementById('btn-manage-projects').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    document.getElementById('new-project-name').value = '';
+    document.getElementById('project-error').textContent = '';
+    expandedProjectId = null;
+    renderProjectsManageList();
+    document.getElementById('projects-overlay').classList.add('open');
+  });
+  document.getElementById('btn-close-projects').addEventListener('click', function(){
+    document.getElementById('projects-overlay').classList.remove('open');
+  });
+  document.getElementById('projects-overlay').addEventListener('click', function(e){
+    if(e.target === this) this.classList.remove('open');
+  });
+  document.getElementById('btn-add-project').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    var errEl = document.getElementById('project-error');
+    var name = document.getElementById('new-project-name').value.trim();
+    if(!name){
+      errEl.textContent = 'Project name is required.';
+      return;
+    }
+    errEl.textContent = '';
+    projects.push({ id: uid(), name: name, visibility:'public', allowedViewers:[], allowedEditors:[] });
+    saveProjects();
+    renderProjectsManageList();
+    renderProjectSwitcher();
+    document.getElementById('new-project-name').value = '';
   });
 
   loadAll();

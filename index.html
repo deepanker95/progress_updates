@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Field Log — Progress Tracker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --ink:#1B2A28;
+    --ink-2:#233835;
+    --parchment:#EDE6D6;
+    --parchment-dim:#DAD2BE;
+    --moss:#6B8F71;
+    --moss-dark:#3F5A44;
+    --amber:#C9A227;
+    --amber-dark:#8A6D18;
+    --rust:#A64B2A;
+    --rust-dark:#6E3319;
+    --fog:#9FB4B0;
+    --water:#3E7C8C;
+    --water-light:#A9CBD3;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--parchment);
+    font-family:'JetBrains Mono', monospace;
+    min-height:100vh;
+    padding:32px 20px 60px;
+  }
+  .wrap{max-width:1080px;margin:0 auto;}
+
+  .masthead{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    border-bottom:2px solid var(--fog);
+    padding-bottom:14px;margin-bottom:8px;
+    flex-wrap:wrap;gap:12px;
+  }
+  .masthead h1{
+    font-family:'Spectral',serif;font-weight:600;font-size:28px;margin:0;
+    letter-spacing:0.5px;color:var(--parchment);
+  }
+  .masthead .sub{font-size:12px;color:var(--fog);letter-spacing:1px;text-transform:uppercase;}
+  .masthead .meta{font-size:12px;color:var(--fog);text-align:right;line-height:1.6;}
+  .masthead .meta b{color:var(--parchment);}
+
+  .toolbar{
+    display:flex;gap:10px;margin:20px 0;flex-wrap:wrap;align-items:center;
+  }
+  .toolbar input[type=text]{flex:1;min-width:160px;}
+  input,select{
+    background:var(--ink-2);border:1px solid var(--fog);color:var(--parchment);
+    font-family:'JetBrains Mono',monospace;font-size:13px;padding:8px 10px;border-radius:2px;
+  }
+  input::placeholder{color:#6b7f7c;}
+  button{
+    background:var(--moss-dark);color:var(--parchment);border:1px solid var(--moss);
+    font-family:'JetBrains Mono',monospace;font-size:13px;padding:9px 16px;
+    border-radius:2px;cursor:pointer;letter-spacing:0.3px;
+  }
+  button:hover{background:var(--moss);}
+  button.ghost{background:transparent;border:1px solid var(--fog);color:var(--fog);}
+  button.ghost:hover{background:rgba(159,180,176,0.12);color:var(--parchment);}
+  button.danger{background:transparent;border:1px solid var(--rust);color:var(--rust);padding:6px 10px;font-size:11px;}
+  button.danger:hover{background:rgba(166,75,42,0.15);}
+
+  .add-form{
+    display:none;background:var(--ink-2);border:1px solid var(--fog);border-radius:4px;
+    padding:16px;margin-bottom:20px;gap:10px;flex-wrap:wrap;
+  }
+  .add-form.open{display:flex;}
+  .add-form .field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--fog);}
+  .add-form label{text-transform:uppercase;letter-spacing:0.5px;}
+
+  .legend{display:flex;gap:18px;font-size:11px;color:var(--fog);margin-bottom:14px;flex-wrap:wrap;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .swatch{width:10px;height:10px;border-radius:2px;display:inline-block;}
+
+  .board{border:1px solid var(--fog);border-radius:4px;overflow:hidden;background:var(--ink-2);}
+  .board-head{
+    display:grid;grid-template-columns:220px 1fr;border-bottom:1px solid var(--fog);
+  }
+  .board-head .site-col{padding:10px 14px;font-size:11px;color:var(--fog);text-transform:uppercase;letter-spacing:1px;border-right:1px solid var(--fog);}
+  .timegrid{position:relative;overflow:hidden;}
+  .timegrid .ticks{display:flex;height:32px;}
+  .tick{flex:1;border-right:1px solid rgba(159,180,176,0.15);font-size:10px;color:var(--fog);
+    display:flex;align-items:center;justify-content:center;white-space:nowrap;}
+
+  .row{display:grid;grid-template-columns:220px 1fr;border-bottom:1px solid rgba(159,180,176,0.2);}
+  .row:last-child{border-bottom:none;}
+  .site-info{padding:12px 14px;border-right:1px solid var(--fog);position:relative;}
+  .site-name{font-weight:500;font-size:13px;color:var(--parchment);margin-bottom:4px;}
+  .site-owner{font-size:11px;color:var(--fog);}
+  .site-pct{font-size:11px;color:var(--water-light);margin-top:4px;}
+  .row-track{position:relative;height:100%;min-height:58px;}
+  .track-svg{position:absolute;top:0;left:0;width:100%;height:100%;}
+
+  .strip{
+    position:absolute;top:10px;bottom:10px;border-radius:3px;overflow:hidden;
+    border:1px solid rgba(0,0,0,0.25);cursor:pointer;
+  }
+  .strip .contour{position:absolute;inset:0;opacity:0.55;}
+  .strip .water{position:absolute;top:0;bottom:0;left:0;background:var(--water);opacity:0.85;}
+  .strip .label{position:absolute;inset:0;display:flex;align-items:center;padding:0 8px;font-size:10.5px;
+    color:var(--parchment);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;z-index:2;text-shadow:0 1px 2px rgba(0,0,0,0.5);}
+
+  .today-line{position:absolute;top:0;bottom:0;width:0;border-left:1.5px dashed var(--amber);z-index:3;}
+  .today-tag{position:absolute;top:-20px;transform:translateX(-50%);font-size:9px;color:var(--amber);white-space:nowrap;letter-spacing:0.5px;}
+
+  .empty{padding:40px 14px;text-align:center;color:var(--fog);font-size:13px;}
+
+  .panel-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .panel-overlay.open{display:flex;}
+  .panel{background:var(--ink-2);border:1px solid var(--fog);border-radius:6px;padding:22px;width:100%;max-width:380px;}
+  .panel h3{font-family:'Spectral',serif;margin:0 0 14px;color:var(--parchment);font-size:18px;}
+  .panel .field{display:flex;flex-direction:column;gap:5px;margin-bottom:12px;}
+  .panel label{font-size:11px;color:var(--fog);text-transform:uppercase;letter-spacing:0.5px;}
+  .panel input[type=range]{width:100%;accent-color:var(--water);}
+  .panel-actions{display:flex;justify-content:space-between;align-items:center;margin-top:16px;}
+  .panel-actions .right{display:flex;gap:8px;}
+
+  .status-note{font-size:10.5px;color:var(--fog);margin-top:6px;line-height:1.5;}
+  .sync{font-size:10px;color:var(--fog);margin-top:14px;text-align:center;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div>
+      <div class="sub" id="board-subtitle">Field progress log — shared board</div>
+      <h1 id="board-title">Survey sites</h1>
+    </div>
+    <div class="meta">
+      <div>Today · <b id="today-display"></b></div>
+      <div><span id="site-count">0</span> <span id="item-count-label">sites</span> tracked</div>
+      <div id="auth-status" style="margin-top:6px;"></div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button id="btn-toggle-add">+ New site</button>
+    <button class="ghost" id="btn-rename">Rename board</button>
+    <button class="ghost" id="btn-edit-text" style="display:none;">Edit text</button>
+    <button class="ghost" id="btn-theme" style="display:none;">Theme</button>
+    <button class="ghost" id="btn-manage-users" style="display:none;">Manage users</button>
+    <button class="ghost" id="btn-signin">Sign in</button>
+    <button class="ghost" id="btn-signout" style="display:none;">Sign out</button>
+  </div>
+
+  <div class="add-form" id="add-form">
+    <div class="field" style="flex:2;min-width:160px;">
+      <label>Site / task</label>
+      <input type="text" id="in-name" placeholder="e.g. Larval survey — Zone 4">
+    </div>
+    <div class="field">
+      <label>Owner</label>
+      <input type="text" id="in-owner" placeholder="Optional">
+    </div>
+    <div class="field">
+      <label>Start</label>
+      <input type="date" id="in-start">
+    </div>
+    <div class="field">
+      <label>End</label>
+      <input type="date" id="in-end">
+    </div>
+    <div class="field" style="justify-content:flex-end;flex-direction:row;gap:8px;">
+      <button id="btn-save-new">Add to board</button>
+      <button class="ghost" id="btn-cancel-new">Cancel</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--water)"></span>Progress (water level)</span>
+    <span><span class="swatch" style="background:var(--moss)"></span>On track</span>
+    <span><span class="swatch" style="background:var(--amber)"></span>Behind pace</span>
+    <span><span class="swatch" style="background:var(--rust)"></span>Overdue</span>
+  </div>
+
+  <div class="board" id="board">
+    <div class="board-head">
+      <div class="site-col" id="site-col-label">Site</div>
+      <div class="timegrid"><div class="ticks" id="ticks"></div></div>
+    </div>
+    <div id="rows"></div>
+  </div>
+
+  <div class="sync">Shared board — updates here are visible to anyone with this link.</div>
+</div>
+
+<div class="panel-overlay" id="panel-overlay">
+  <div class="panel">
+    <h3 id="panel-title">Update progress</h3>
+    <div class="field">
+      <label>Progress: <span id="pct-out">0</span>%</label>
+      <input type="range" id="in-progress" min="0" max="100" step="1" value="0">
+    </div>
+    <div class="field">
+      <label>Start</label>
+      <input type="date" id="edit-start">
+    </div>
+    <div class="field">
+      <label>End</label>
+      <input type="date" id="edit-end">
+    </div>
+    <div class="field">
+      <label>Owner</label>
+      <input type="text" id="edit-owner">
+    </div>
+    <div class="status-note" id="status-note"></div>
+    <div class="panel-actions">
+      <button class="danger" id="btn-delete">Remove site</button>
+      <div class="right">
+        <button class="ghost" id="btn-cancel-edit">Close</button>
+        <button id="btn-save-edit">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="login-overlay">
+  <div class="panel">
+    <h3>Sign in to edit</h3>
+    <div class="field">
+      <label>Username</label>
+      <input type="text" id="login-user" placeholder="username">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="login-pass" placeholder="password">
+    </div>
+    <div class="status-note" id="login-error" style="color:var(--rust);"></div>
+    <div class="panel-actions">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="btn-cancel-login">Close</button>
+        <button id="btn-do-login">Sign in</button>
+      </div>
+    </div>
+    <div class="status-note">Viewing the board never requires sign-in — this only gates adding, editing, or removing sites.</div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="users-overlay">
+  <div class="panel" style="max-width:440px;">
+    <h3>Manage editors</h3>
+
+    <div style="border:1px solid var(--fog);border-radius:4px;padding:12px;margin-bottom:16px;">
+      <label style="font-size:11px;color:var(--fog);text-transform:uppercase;letter-spacing:0.5px;">Admin account</label>
+      <div class="field" style="margin-top:8px;">
+        <label>Admin username</label>
+        <input type="text" id="admin-user-input" placeholder="admin">
+      </div>
+      <div class="field">
+        <label>Admin password (leave blank to keep current)</label>
+        <input type="text" id="admin-pass-input" placeholder="new password">
+      </div>
+      <div id="admin-cred-error" class="status-note" style="color:var(--rust);"></div>
+      <button id="btn-save-admin-cred" style="margin-top:4px;">Update admin login</button>
+      <div class="status-note">Whoever signs in with this username/password always gets admin rights — renaming it doesn't demote you, it just changes what you type to sign in.</div>
+    </div>
+
+    <div id="users-list" style="margin-bottom:14px;"></div>
+    <div class="field">
+      <label>New username</label>
+      <input type="text" id="new-user-name" placeholder="e.g. field-team">
+    </div>
+    <div class="field">
+      <label>New password</label>
+      <input type="text" id="new-user-pass" placeholder="password">
+    </div>
+    <div id="new-user-error" class="status-note" style="color:var(--rust);"></div>
+    <div class="panel-actions">
+      <button id="btn-add-user">Add editor</button>
+      <div class="right">
+        <button class="ghost" id="btn-close-users">Close</button>
+      </div>
+    </div>
+    <div class="status-note">Passwords are stored in plain text in the shared board data and are only meant to keep casual visitors from editing — not a real security boundary. See note below.</div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="text-overlay">
+  <div class="panel" style="max-width:420px;">
+    <h3>Edit board text</h3>
+    <div class="field">
+      <label>Subtitle</label>
+      <input type="text" id="edit-subtitle" placeholder="e.g. Shared progress board">
+    </div>
+    <div class="field">
+      <label>Item name (singular) — e.g. Site, Task, Project</label>
+      <input type="text" id="edit-item-singular" placeholder="Site">
+    </div>
+    <div class="field">
+      <label>Item name (plural) — e.g. Sites, Tasks, Projects</label>
+      <input type="text" id="edit-item-plural" placeholder="Sites">
+    </div>
+    <div class="panel-actions">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="btn-cancel-text">Cancel</button>
+        <button id="btn-save-text">Save</button>
+      </div>
+    </div>
+    <div class="status-note">This relabels the board for any kind of tracker — not just field surveys — for everyone who opens the link.</div>
+  </div>
+</div>
+
+<div class="panel-overlay" id="theme-overlay">
+  <div class="panel" style="max-width:420px;">
+    <h3>Board theme</h3>
+    <div id="theme-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div class="panel-actions">
+      <div></div>
+      <div class="right">
+        <button class="ghost" id="btn-close-theme">Close</button>
+      </div>
+    </div>
+    <div class="status-note">The chosen theme applies for everyone who opens this link.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var STORAGE_KEY = 'gantt-tasks';
+  var TITLE_KEY = 'gantt-title';
+  var AUTH_KEY = 'gantt-auth-v1';
+  var LABELS_KEY = 'gantt-labels-v1';
+  var THEME_KEY = 'gantt-theme-v1';
+  var tasks = [];
+  var boardTitle = 'Survey sites';
+  var activeId = null;
+  var auth = { admin: { user:'admin', pass:'11223344' }, editors: [] };
+  var currentUser = null; // { user, isAdmin } — session only, not persisted, resets on reload
+  var labels = { subtitle:'Field progress log — shared board', itemSingular:'Site', itemPlural:'Sites' };
+  var currentThemeName = 'moss';
+
+  var THEMES = {
+    moss: { name:'Moss (default)', vars:{
+      ink:'#1B2A28', ink2:'#233835', parchment:'#EDE6D6', parchmentDim:'#DAD2BE',
+      moss:'#6B8F71', mossDark:'#3F5A44', amber:'#C9A227', amberDark:'#8A6D18',
+      rust:'#A64B2A', rustDark:'#6E3319', fog:'#9FB4B0', water:'#3E7C8C', waterLight:'#A9CBD3'
+    }},
+    ocean: { name:'Ocean', vars:{
+      ink:'#0E2233', ink2:'#163247', parchment:'#E7F1F5', parchmentDim:'#C7DCE4',
+      moss:'#3E8E7E', mossDark:'#276358', amber:'#D9A441', amberDark:'#96701F',
+      rust:'#C4573F', rustDark:'#803A29', fog:'#7FA6B8', water:'#2E7DAF', waterLight:'#9CCBE3'
+    }},
+    ember: { name:'Ember', vars:{
+      ink:'#2A1B14', ink2:'#3A2419', parchment:'#F2E4D3', parchmentDim:'#E0CBAE',
+      moss:'#7A8F52', mossDark:'#525E33', amber:'#E08C2B', amberDark:'#9C5E14',
+      rust:'#C1421E', rustDark:'#7C2A11', fog:'#B99A83', water:'#B8562F', waterLight:'#E3A87C'
+    }},
+    slate: { name:'Slate', vars:{
+      ink:'#1C1F22', ink2:'#282C30', parchment:'#E8E9EB', parchmentDim:'#C7CACE',
+      moss:'#6E9A82', mossDark:'#456350', amber:'#B8A45C', amberDark:'#7C6C36',
+      rust:'#A85A5A', rustDark:'#703C3C', fog:'#9098A0', water:'#5C7A96', waterLight:'#A9BFCF'
+    }}
+  };
+
+  function uid(){ return 't' + Math.random().toString(36).slice(2,9); }
+  function toDate(s){ var p=s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
+  function fmtISO(d){ return d.toISOString().slice(0,10); }
+  function daysBetween(a,b){ return Math.round((b-a)/86400000); }
+
+  // Talks to the /api/kv Edge Function (backed by EdgeOne KV) instead of the
+  // claude.ai-only window.storage API. Same get/set shape so the rest of the
+  // app below doesn't need to change.
+  var storage = {
+    async get(key){
+      try{
+        var res = await fetch('/api/kv?key=' + encodeURIComponent(key));
+        if(!res.ok) return null;
+        var data = await res.json();
+        if(!data || data.value === null || data.value === undefined) return null;
+        return { key: data.key, value: data.value };
+      }catch(e){ console.error('storage.get failed', e); return null; }
+    },
+    async set(key, value){
+      try{
+        var res = await fetch('/api/kv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: key, value: value })
+        });
+        if(!res.ok) return null;
+        return await res.json();
+      }catch(e){ console.error('storage.set failed', e); return null; }
+    }
+  };
+
+  async function loadAll(){
+    try{
+      var r = await storage.get(STORAGE_KEY);
+      tasks = r ? JSON.parse(r.value) : [];
+    }catch(e){ tasks = []; }
+    try{
+      var rt = await storage.get(TITLE_KEY);
+      boardTitle = rt ? rt.value : 'Survey sites';
+    }catch(e){ boardTitle = 'Survey sites'; }
+    try{
+      var ra = await storage.get(AUTH_KEY);
+      if(ra){
+        var parsed = JSON.parse(ra.value);
+        if(parsed && parsed.admin) auth = parsed;
+      } else {
+        await saveAuth(); // first run: seed default admin credentials
+      }
+    }catch(e){ /* keep default auth */ }
+    try{
+      var rl = await storage.get(LABELS_KEY);
+      if(rl){
+        var pl = JSON.parse(rl.value);
+        labels = { subtitle: pl.subtitle || labels.subtitle, itemSingular: pl.itemSingular || labels.itemSingular, itemPlural: pl.itemPlural || labels.itemPlural };
+      }
+    }catch(e){ /* keep default labels */ }
+    try{
+      var rth = await storage.get(THEME_KEY);
+      if(rth && THEMES[rth.value]) currentThemeName = rth.value;
+    }catch(e){ /* keep default theme */ }
+    document.getElementById('board-title').textContent = boardTitle;
+    applyLabels();
+    applyTheme(currentThemeName);
+    renderAuthUI();
+    render();
+  }
+
+  async function saveTasks(){
+    try{ await storage.set(STORAGE_KEY, JSON.stringify(tasks)); }
+    catch(e){ console.error('save failed', e); }
+  }
+  async function saveTitle(){
+    try{ await storage.set(TITLE_KEY, boardTitle); }
+    catch(e){ console.error('save failed', e); }
+  }
+  async function saveAuth(){
+    try{ await storage.set(AUTH_KEY, JSON.stringify(auth)); }
+    catch(e){ console.error('save failed', e); }
+  }
+  async function saveLabels(){
+    try{ await storage.set(LABELS_KEY, JSON.stringify(labels)); }
+    catch(e){ console.error('save failed', e); }
+  }
+  async function saveTheme(){
+    try{ await storage.set(THEME_KEY, currentThemeName); }
+    catch(e){ console.error('save failed', e); }
+  }
+
+  function applyLabels(){
+    document.getElementById('board-subtitle').textContent = labels.subtitle;
+    document.getElementById('site-col-label').textContent = labels.itemSingular;
+    document.getElementById('item-count-label').textContent = labels.itemPlural.toLowerCase();
+    document.getElementById('btn-toggle-add').textContent = '+ New ' + labels.itemSingular.toLowerCase();
+    var nameLabel = document.querySelector('#add-form .field label');
+    if(nameLabel) nameLabel.textContent = labels.itemSingular + ' / task';
+  }
+
+  function applyTheme(name){
+    var t = THEMES[name] || THEMES.moss;
+    currentThemeName = name;
+    var v = t.vars;
+    var root = document.documentElement.style;
+    root.setProperty('--ink', v.ink);
+    root.setProperty('--ink-2', v.ink2);
+    root.setProperty('--parchment', v.parchment);
+    root.setProperty('--parchment-dim', v.parchmentDim);
+    root.setProperty('--moss', v.moss);
+    root.setProperty('--moss-dark', v.mossDark);
+    root.setProperty('--amber', v.amber);
+    root.setProperty('--amber-dark', v.amberDark);
+    root.setProperty('--rust', v.rust);
+    root.setProperty('--rust-dark', v.rustDark);
+    root.setProperty('--fog', v.fog);
+    root.setProperty('--water', v.water);
+    root.setProperty('--water-light', v.waterLight);
+  }
+
+  function isLoggedIn(){ return !!currentUser; }
+  function isAdmin(){ return !!(currentUser && currentUser.isAdmin); }
+
+  function renderAuthUI(){
+    var statusEl = document.getElementById('auth-status');
+    var signIn = document.getElementById('btn-signin');
+    var signOut = document.getElementById('btn-signout');
+    var manageBtn = document.getElementById('btn-manage-users');
+    var editTextBtn = document.getElementById('btn-edit-text');
+    var themeBtn = document.getElementById('btn-theme');
+    if(isLoggedIn()){
+      statusEl.textContent = 'Signed in as ' + currentUser.user + (isAdmin() ? ' (admin)' : '');
+      signIn.style.display = 'none';
+      signOut.style.display = '';
+      manageBtn.style.display = isAdmin() ? '' : 'none';
+      editTextBtn.style.display = isAdmin() ? '' : 'none';
+      themeBtn.style.display = isAdmin() ? '' : 'none';
+    } else {
+      statusEl.textContent = 'Viewing only — sign in to edit';
+      signIn.style.display = '';
+      signOut.style.display = 'none';
+      manageBtn.style.display = 'none';
+      editTextBtn.style.display = 'none';
+      themeBtn.style.display = 'none';
+    }
+  }
+
+  function requireLogin(){
+    if(isLoggedIn()) return true;
+    document.getElementById('login-error').textContent = '';
+    document.getElementById('login-overlay').classList.add('open');
+    return false;
+  }
+
+  function contourSVG(seed, width, height, colorClass){
+    var lines = [];
+    for(var i=0;i<3;i++){
+      var amp = 6 + i*3;
+      var yBase = (height/4)*(i+1);
+      var d = 'M0,' + yBase;
+      for(var x=0;x<=width;x+=14){
+        var y = yBase + Math.sin((x+seed*17+i*40)/18)*amp*0.4;
+        d += ' L' + x + ',' + y;
+      }
+      lines.push('<path d="'+d+'" fill="none" stroke="rgba(237,230,214,0.35)" stroke-width="1"/>');
+    }
+    return '<svg class="track-svg" viewBox="0 0 '+width+' '+height+'" preserveAspectRatio="none">'+lines.join('')+'</svg>';
+  }
+
+  function computeStatusColor(t){
+    var start = toDate(t.start), end = toDate(t.end), today = new Date();
+    today.setHours(0,0,0,0);
+    var total = Math.max(1, daysBetween(start,end));
+    var elapsed = Math.min(total, Math.max(0, daysBetween(start, today)));
+    var expected = Math.round((elapsed/total)*100);
+    if(t.progress >= 100) return {color:'var(--moss)', label:'Complete'};
+    if(today > end) return {color:'var(--rust)', label:'Overdue'};
+    if(t.progress + 8 < expected) return {color:'var(--amber)', label:'Behind pace, expected ~' + expected + '%'};
+    return {color:'var(--moss)', label:'On track'};
+  }
+
+  function render(){
+    document.getElementById('site-count').textContent = tasks.length;
+    document.getElementById('today-display').textContent = new Date().toDateString();
+
+    var rowsEl = document.getElementById('rows');
+    var ticksEl = document.getElementById('ticks');
+    rowsEl.innerHTML = '';
+    ticksEl.innerHTML = '';
+
+    if(tasks.length === 0){
+      rowsEl.innerHTML = '<div class="empty">No ' + labels.itemPlural.toLowerCase() + ' yet — add one to start the log.</div>';
+      return;
+    }
+
+    var minDate = null, maxDate = null;
+    tasks.forEach(function(t){
+      var s = toDate(t.start), e = toDate(t.end);
+      if(!minDate || s < minDate) minDate = s;
+      if(!maxDate || e > maxDate) maxDate = e;
+    });
+    var today = new Date(); today.setHours(0,0,0,0);
+    if(today < minDate) minDate = today;
+    if(today > maxDate) maxDate = today;
+    minDate = new Date(minDate.getTime() - 2*86400000);
+    maxDate = new Date(maxDate.getTime() + 2*86400000);
+    var totalDays = Math.max(1, daysBetween(minDate, maxDate));
+
+    var weeks = Math.ceil(totalDays/7);
+    for(var w=0; w<weeks; w++){
+      var d = new Date(minDate.getTime() + w*7*86400000);
+      var tick = document.createElement('div');
+      tick.className = 'tick';
+      tick.textContent = (d.getMonth()+1) + '/' + d.getDate();
+      ticksEl.appendChild(tick);
+    }
+
+    tasks.forEach(function(t){
+      var row = document.createElement('div');
+      row.className = 'row';
+
+      var info = document.createElement('div');
+      info.className = 'site-info';
+      info.innerHTML = '<div class="site-name">'+escapeHtml(t.name)+'</div>' +
+        '<div class="site-owner">'+(t.owner? escapeHtml(t.owner) : '—')+'</div>' +
+        '<div class="site-pct">'+t.progress+'% logged</div>';
+      row.appendChild(info);
+
+      var track = document.createElement('div');
+      track.className = 'row-track';
+
+      var s = toDate(t.start), e = toDate(t.end);
+      var leftPct = (daysBetween(minDate,s)/totalDays)*100;
+      var widthPct = (daysBetween(s,e)/totalDays)*100;
+      widthPct = Math.max(widthPct, 2);
+
+      var strip = document.createElement('div');
+      strip.className = 'strip';
+      strip.style.left = leftPct + '%';
+      strip.style.width = widthPct + '%';
+      strip.style.background = 'var(--ink)';
+
+      var st = computeStatusColor(t);
+      strip.innerHTML = contourSVG(t.name.length, 300, 40) +
+        '<div class="water" style="width:'+t.progress+'%; background:'+st.color+'"></div>' +
+        '<div class="label">'+escapeHtml(t.name)+'</div>';
+      strip.title = st.label;
+      strip.addEventListener('click', function(taskId){
+        return function(){ openEdit(taskId); };
+      }(t.id));
+      track.appendChild(strip);
+
+      var todayLeft = (daysBetween(minDate,today)/totalDays)*100;
+      if(todayLeft >= 0 && todayLeft <= 100){
+        var tl = document.createElement('div');
+        tl.className = 'today-line';
+        tl.style.left = todayLeft + '%';
+        if(tasks.indexOf(t) === 0){
+          tl.innerHTML = '<div class="today-tag">today</div>';
+        }
+        track.appendChild(tl);
+      }
+
+      row.appendChild(track);
+      rowsEl.appendChild(row);
+    });
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  document.getElementById('btn-toggle-add').addEventListener('click', function(){
+    if(!requireLogin()) return;
+    var f = document.getElementById('add-form');
+    f.classList.add('open');
+    var today = fmtISO(new Date());
+    document.getElementById('in-start').value = today;
+    var endDefault = new Date(); endDefault.setDate(endDefault.getDate()+7);
+    document.getElementById('in-end').value = fmtISO(endDefault);
+  });
+  document.getElementById('btn-cancel-new').addEventListener('click', function(){
+    document.getElementById('add-form').classList.remove('open');
+    document.getElementById('in-name').value = '';
+    document.getElementById('in-owner').value = '';
+  });
+  document.getElementById('btn-save-new').addEventListener('click', function(){
+    if(!requireLogin()) return;
+    var name = document.getElementById('in-name').value.trim();
+    var owner = document.getElementById('in-owner').value.trim();
+    var start = document.getElementById('in-start').value;
+    var end = document.getElementById('in-end').value;
+    if(!name || !start || !end){ return; }
+    if(toDate(end) < toDate(start)){ end = start; }
+    tasks.push({ id: uid(), name:name, owner:owner, start:start, end:end, progress:0 });
+    saveTasks();
+    render();
+    document.getElementById('in-name').value = '';
+    document.getElementById('in-owner').value = '';
+    document.getElementById('add-form').classList.remove('open');
+  });
+
+  document.getElementById('btn-rename').addEventListener('click', function(){
+    if(!requireLogin()) return;
+    var name = prompt('Board name', boardTitle);
+    if(name){
+      boardTitle = name;
+      document.getElementById('board-title').textContent = boardTitle;
+      saveTitle();
+    }
+  });
+
+  function openEdit(id){
+    activeId = id;
+    var t = tasks.find(function(x){ return x.id === id; });
+    if(!t) return;
+    document.getElementById('panel-title').textContent = t.name;
+    document.getElementById('in-progress').value = t.progress;
+    document.getElementById('pct-out').textContent = t.progress;
+    document.getElementById('edit-start').value = t.start;
+    document.getElementById('edit-end').value = t.end;
+    document.getElementById('edit-owner').value = t.owner || '';
+    var st = computeStatusColor(t);
+    document.getElementById('status-note').textContent = st.label;
+    document.getElementById('panel-overlay').classList.add('open');
+  }
+  document.getElementById('in-progress').addEventListener('input', function(){
+    document.getElementById('pct-out').textContent = this.value;
+  });
+  document.getElementById('btn-cancel-edit').addEventListener('click', function(){
+    document.getElementById('panel-overlay').classList.remove('open');
+  });
+  document.getElementById('btn-save-edit').addEventListener('click', function(){
+    if(!requireLogin()) return;
+    var t = tasks.find(function(x){ return x.id === activeId; });
+    if(!t) return;
+    t.progress = parseInt(document.getElementById('in-progress').value, 10);
+    var ns = document.getElementById('edit-start').value;
+    var ne = document.getElementById('edit-end').value;
+    if(ns) t.start = ns;
+    if(ne) t.end = ne;
+    t.owner = document.getElementById('edit-owner').value.trim();
+    saveTasks();
+    render();
+    document.getElementById('panel-overlay').classList.remove('open');
+  });
+  document.getElementById('btn-delete').addEventListener('click', function(){
+    if(!requireLogin()) return;
+    if(!confirm('Remove this ' + labels.itemSingular.toLowerCase() + ' from the board?')) return;
+    tasks = tasks.filter(function(x){ return x.id !== activeId; });
+    saveTasks();
+    render();
+    document.getElementById('panel-overlay').classList.remove('open');
+  });
+  document.getElementById('panel-overlay').addEventListener('click', function(e){
+    if(e.target === this) this.classList.remove('open');
+  });
+
+  document.getElementById('btn-signin').addEventListener('click', function(){
+    document.getElementById('login-user').value = '';
+    document.getElementById('login-pass').value = '';
+    document.getElementById('login-error').textContent = '';
+    document.getElementById('login-overlay').classList.add('open');
+  });
+  document.getElementById('btn-cancel-login').addEventListener('click', function(){
+    document.getElementById('login-overlay').classList.remove('open');
+  });
+  document.getElementById('login-overlay').addEventListener('click', function(e){
+    if(e.target === this) this.classList.remove('open');
+  });
+  document.getElementById('btn-do-login').addEventListener('click', function(){
+    var u = document.getElementById('login-user').value.trim();
+    var p = document.getElementById('login-pass').value;
+    var errEl = document.getElementById('login-error');
+    if(u === auth.admin.user && p === auth.admin.pass){
+      currentUser = { user:u, isAdmin:true };
+    } else {
+      var match = auth.editors.find(function(ed){ return ed.user === u && ed.pass === p; });
+      currentUser = match ? { user:u, isAdmin:false } : null;
+    }
+    if(!currentUser){
+      errEl.textContent = 'Incorrect username or password.';
+      return;
+    }
+    document.getElementById('login-overlay').classList.remove('open');
+    renderAuthUI();
+  });
+  document.getElementById('btn-signout').addEventListener('click', function(){
+    currentUser = null;
+    renderAuthUI();
+  });
+
+  function isUsernameTaken(name, ignoreAdmin){
+    if(!ignoreAdmin && name === auth.admin.user) return true;
+    return auth.editors.some(function(ed){ return ed.user === name; });
+  }
+
+  function renderUsersList(){
+    var el = document.getElementById('users-list');
+    if(auth.editors.length === 0){
+      el.innerHTML = '<div class="status-note">No additional editors yet.</div>';
+      return;
+    }
+    el.innerHTML = auth.editors.map(function(ed, i){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(159,180,176,0.2);">'+
+        '<span style="font-size:13px;">'+escapeHtml(ed.user)+'</span>'+
+        '<button class="danger" data-idx="'+i+'">Remove</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('button[data-idx]'), function(btn){
+      btn.addEventListener('click', function(){
+        var idx = parseInt(this.getAttribute('data-idx'), 10);
+        auth.editors.splice(idx, 1);
+        saveAuth();
+        renderUsersList();
+      });
+    });
+  }
+
+  document.getElementById('btn-manage-users').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    document.getElementById('admin-user-input').value = auth.admin.user;
+    document.getElementById('admin-pass-input').value = '';
+    document.getElementById('admin-cred-error').textContent = '';
+    document.getElementById('new-user-name').value = '';
+    document.getElementById('new-user-pass').value = '';
+    document.getElementById('new-user-error').textContent = '';
+    renderUsersList();
+    document.getElementById('users-overlay').classList.add('open');
+  });
+  document.getElementById('btn-close-users').addEventListener('click', function(){
+    document.getElementById('users-overlay').classList.remove('open');
+  });
+  document.getElementById('users-overlay').addEventListener('click', function(e){
+    if(e.target === this) this.classList.remove('open');
+  });
+
+  document.getElementById('btn-save-admin-cred').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    var errEl = document.getElementById('admin-cred-error');
+    var newUser = document.getElementById('admin-user-input').value.trim();
+    var newPass = document.getElementById('admin-pass-input').value;
+    if(!newUser){
+      errEl.textContent = 'Admin username cannot be empty.';
+      return;
+    }
+    if(newUser !== auth.admin.user && isUsernameTaken(newUser, true)){
+      errEl.textContent = 'That username is already used by an editor.';
+      return;
+    }
+    var oldAdminUser = auth.admin.user;
+    auth.admin = { user: newUser, pass: newPass ? newPass : auth.admin.pass };
+    saveAuth();
+    if(currentUser && currentUser.isAdmin && currentUser.user === oldAdminUser){
+      currentUser.user = newUser;
+      renderAuthUI();
+    }
+    errEl.textContent = '';
+    document.getElementById('admin-pass-input').value = '';
+  });
+
+  document.getElementById('btn-add-user').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    var errEl = document.getElementById('new-user-error');
+    var u = document.getElementById('new-user-name').value.trim();
+    var p = document.getElementById('new-user-pass').value;
+    errEl.textContent = '';
+    if(!u || !p){
+      errEl.textContent = 'Username and password are both required.';
+      return;
+    }
+    if(isUsernameTaken(u)){
+      errEl.textContent = 'That username is already taken.';
+      return;
+    }
+    auth.editors.push({ user:u, pass:p });
+    saveAuth();
+    renderUsersList();
+    document.getElementById('new-user-name').value = '';
+    document.getElementById('new-user-pass').value = '';
+  });
+
+  document.getElementById('btn-edit-text').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    document.getElementById('edit-subtitle').value = labels.subtitle;
+    document.getElementById('edit-item-singular').value = labels.itemSingular;
+    document.getElementById('edit-item-plural').value = labels.itemPlural;
+    document.getElementById('text-overlay').classList.add('open');
+  });
+  document.getElementById('btn-cancel-text').addEventListener('click', function(){
+    document.getElementById('text-overlay').classList.remove('open');
+  });
+  document.getElementById('text-overlay').addEventListener('click', function(e){
+    if(e.target === this) this.classList.remove('open');
+  });
+  document.getElementById('btn-save-text').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    var sub = document.getElementById('edit-subtitle').value.trim();
+    var sing = document.getElementById('edit-item-singular').value.trim();
+    var plur = document.getElementById('edit-item-plural').value.trim();
+    labels = {
+      subtitle: sub || labels.subtitle,
+      itemSingular: sing || labels.itemSingular,
+      itemPlural: plur || labels.itemPlural
+    };
+    saveLabels();
+    applyLabels();
+    render();
+    document.getElementById('text-overlay').classList.remove('open');
+  });
+
+  function renderThemeList(){
+    var el = document.getElementById('theme-list');
+    el.innerHTML = Object.keys(THEMES).map(function(key){
+      var t = THEMES[key];
+      var active = key === currentThemeName;
+      return '<button class="' + (active ? '' : 'ghost') + '" data-theme="' + key + '" style="justify-content:space-between;display:flex;align-items:center;">' +
+        '<span>' + t.name + (active ? ' — current' : '') + '</span>' +
+        '<span style="display:flex;gap:4px;">' +
+          '<span class="swatch" style="background:' + t.vars.moss + '"></span>' +
+          '<span class="swatch" style="background:' + t.vars.water + '"></span>' +
+          '<span class="swatch" style="background:' + t.vars.amber + '"></span>' +
+          '<span class="swatch" style="background:' + t.vars.rust + '"></span>' +
+        '</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('button[data-theme]'), function(btn){
+      btn.addEventListener('click', function(){
+        if(!isAdmin()) return;
+        applyTheme(this.getAttribute('data-theme'));
+        saveTheme();
+        renderThemeList();
+      });
+    });
+  }
+  document.getElementById('btn-theme').addEventListener('click', function(){
+    if(!isAdmin()) return;
+    renderThemeList();
+    document.getElementById('theme-overlay').classList.add('open');
+  });
+  document.getElementById('btn-close-theme').addEventListener('click', function(){
+    document.getElementById('theme-overlay').classList.remove('open');
+  });
+  document.getElementById('theme-overlay').addEventListener('click', function(e){
+    if(e.target === this) this.classList.remove('open');
+  });
+
+  loadAll();
+})();
+</script>
+</body>
+</html>
